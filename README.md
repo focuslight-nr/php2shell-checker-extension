@@ -1,40 +1,101 @@
-# php2shell-checker Chrome拡張（非公式ポート）
+# php2shell-checker Chrome Extension (unofficial)
 
-[openai/php2shell-checker](https://github.com/openai/php2shell-checker) のURLチェック判定ロジック（カットオフ表・バージョン抽出の正規表現）をそのまま移植し、ブラウジング中に自動でPHPバージョンの脆弱性有無をバッジ表示するChrome拡張機能です。openai/php2shell-checker 本体とは別の、個人用の非公式ポートです。
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4)
 
-## できること
+An **unofficial** Chrome extension that ports the URL-checking logic of
+[openai/php2shell-checker](https://github.com/openai/php2shell-checker) into a
+live badge: as you browse, it watches the current tab's `Server` /
+`X-Powered-By` response headers, extracts the PHP version, and flags it
+`OK` / `VULNERABLE` / `UNKNOWN` against the same cutoff table.
 
-- 今見ているタブのレスポンスヘッダ（`Server` / `X-Powered-By`）を監視し、PHPバージョンを抽出
-- `background.js` 内の `VULNERABLE_THROUGH` カットオフ表（phpcheck.js から忠実に移植、2026-10-20時点）と照合
-- 拡張機能アイコンにバッジ表示：
-  - 緑 `OK` — カットオフより新しい安定パッチ
-  - 赤 `!` — `VULNERABLE`
-  - グレー `?` — `UNKNOWN`（ヘッダが無い/読めない/未知のブランチ）
-- ポップアップでバージョン・判定理由・対象URLを表示、ワンクリックでページをリロードして再チェック
+> **Disclaimer** — This project is **not created, maintained, or endorsed by
+> OpenAI**. It is an independent, community port of the publicly available
+> version-check logic in `openai/php2shell-checker` (Apache-2.0), rebuilt as a
+> browser extension. "php2shell" and any related naming belong to the
+> upstream project; this repo only reimplements its published, open-source
+> detection logic.
 
-## できないこと（原作との違い）
+## What it does
 
-- **サーバー側CLI（`php -v`）のチェックはできません** — ブラウザ拡張機能の権限モデル上、サーバーのシェルには触れられないため、`phpcheck-server` 相当の機能はありません。URLベースの `phpcheck-url` 相当のみです。
-- ヘッダが隠されている/リダイレクト先でしか出ない場合は原作と同様 `UNKNOWN` になります。`UNKNOWN` は「パッチ済み」を意味しません。
+- Watches the active tab's `Server` / `X-Powered-By` response headers via
+  `chrome.webRequest.onHeadersReceived`.
+- Extracts a PHP version with the same regex as upstream, and compares it
+  against the same `VULNERABLE_THROUGH` cutoff table (ported verbatim into
+  [`logic.js`](logic.js), as of 2026-10-20).
+- Shows a toolbar badge:
+  - 🟢 **OK** — stable patch newer than the cutoff for its branch
+  - 🔴 **!** — **VULNERABLE** — at or below the cutoff
+  - ⚪ **?** — **UNKNOWN** — no header, an unlisted branch, or a prerelease build
+- Clicking the icon opens a popup with the detected version, the reason, and
+  the page URL.
 
-## インストール（開発者モードでの読み込み）
+## What it does *not* do (vs. the original CLI)
 
-1. Chromeで `chrome://extensions` を開く
-2. 右上の「デベロッパーモード」をON
-3. 「パッケージ化されていない拡張機能を読み込む」をクリックし、このフォルダ（`php2shell-checker-extension/`）を選択
-4. 任意のHTTP/HTTPSサイトを開くと、ツールバーのアイコンにバッジが表示されます
+- **No server-side check.** `openai/php2shell-checker` also has a
+  `--local` / `phpcheck-server` mode that runs `php -v` on a machine you have
+  shell access to. A browser extension has no such access — this project only
+  covers the URL-based `phpcheck-url` case.
+- Same inherent limitation as upstream: hidden or absent headers read as
+  `UNKNOWN`, which is **not** proof the site is patched.
 
-## 仕組み・設計メモ
+## Install (load unpacked)
 
-- `background.js`（MV3 service worker）が `chrome.webRequest.onHeadersReceived` でメインフレームのレスポンスヘッダを監視し、タブごとに判定結果をメモリ上の `Map` に保持
-- `chrome.webNavigation.onBeforeNavigate` でトップレベルの遷移開始を検知し、前のページの判定結果・バッジを即座にクリア（古い判定が次のページに持ち越されるのを防止）
-- `popup.js` はアクティブタブの判定結果を `chrome.runtime.sendMessage` で取得して表示するだけで、判定ロジックは一切持たない（単一の真実源は `background.js`）
-- カットオフ表・正規表現は原作 `skills/phpcheck-url/scripts/phpcheck.js` と1対1で対応させています。原作が表を更新したら、ここも手動で追随させる必要があります（自動取得は行っていません）
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked** and select this folder
+4. Visit any `http://` or `https://` site — the toolbar badge updates after
+   the page loads
 
-## テスト用ページ
+## How it's built
 
-`test/fake-php-server.html` ... ではなく、実際のHTTPレスポンスヘッダでしか動作しないため、ローカルで試す場合は `test/serve.py` で簡易HTTPサーバーを立て、`X-Powered-By` ヘッダを好きなPHPバージョンに差し替えて確認できます。`python3 test/serve.py --version 8.1.10` のように起動し、`http://127.0.0.1:8765/` を開いてください。
+- `logic.js` — pure, dependency-free port of `patchStatus` / header-matching
+  (no Chrome APIs, so it's unit-testable under plain Node)
+- `background.js` — MV3 service worker; listens for response headers per tab,
+  keeps an in-memory `Map` of the latest result per `tabId`, and clears it the
+  instant a new top-level navigation starts (`webNavigation.onBeforeNavigate`)
+  so a badge never shows a stale verdict from the previous page
+- `popup.html` / `popup.js` — reads the active tab's result from the
+  background worker; holds no detection logic of its own
+- `icons/` — placeholder icons generated locally (feel free to replace)
 
-## ライセンス
+If upstream updates its cutoff table, `logic.js` has to be updated by hand —
+there's no automatic sync.
 
-原作 [openai/php2shell-checker](https://github.com/openai/php2shell-checker) は Apache License 2.0。このポートも同ライセンスに合わせています（`LICENSE` 参照）。
+## Tests
+
+```sh
+node --test test/logic.test.mjs
+```
+
+11 unit tests cover the cutoff table boundaries, prerelease handling, and the
+"a later vulnerable match is never hidden by an earlier OK-looking one" rule
+— mirroring the precedence logic in the original `phpcheck.js`.
+
+For manual, end-to-end testing in a real browser, `test/serve.py` serves a
+local page with a chosen `X-Powered-By` (or `Server`) header so you can watch
+the badge react without a real PHP install:
+
+```sh
+python3 test/serve.py --version 8.1.10           # VULNERABLE (cutoff is 34)
+python3 test/serve.py --version 8.3.40 --header server
+```
+
+Then open `http://127.0.0.1:8765/` with the extension loaded.
+
+## License
+
+Apache License 2.0 (same as upstream) — see [LICENSE](LICENSE).
+
+---
+
+## 日本語について
+
+本リポジトリは [openai/php2shell-checker](https://github.com/openai/php2shell-checker)
+の「URLベースのPHPバージョン脆弱性チェック」ロジックを、ブラウジング中に自動判定・バッジ表示するChrome拡張機能として移植した**非公式**プロジェクトです。OpenAI公式のプロジェクトではなく、OpenAIによる承認・関与もありません。
+
+- できること: アクティブタブのレスポンスヘッダ監視、OK/VULNERABLE/UNKNOWN判定、ポップアップでの詳細表示
+- できないこと: サーバー側(`php -v`)のチェックは拡張機能の権限モデル上不可能なため非対応
+- 導入: `chrome://extensions` → デベロッパーモード → 「パッケージ化されていない拡張機能を読み込む」でこのフォルダを選択
+- テスト: `node --test test/logic.test.mjs`（11件）、`test/serve.py` でローカル検証用サーバーを起動可能
+- ライセンス: Apache License 2.0
