@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "PHP Version Checker (php2shell)",
+  "version": "1.0.0",
+  "description": "Checks the PHP version exposed by the current site's response headers against openai/php2shell-checker's vulnerability cutoff table.",
+  "permissions": ["webRequest", "webNavigation", "tabs", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "PHP Version Checker"
+  }
+}
